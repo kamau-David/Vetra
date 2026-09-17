@@ -73,7 +73,7 @@ streamlit run dashboard/app.py
 
 A recorded walkthrough replays a real, confirmed past rug-pull through the model, showing the risk score rising in the hours before the token's actual collapse.
 
-[Demo video link — add before submission]
+
 
 ## Team
 
