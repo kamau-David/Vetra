@@ -6,3 +6,4 @@ venv/
 *.db
 .DS_Store
 .streamlit/secrets.toml
+data/raw/*.csv
