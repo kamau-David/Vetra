@@ -7,9 +7,10 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_scam_addresses():
-    df = pd.read_csv(RAW_DIR / "rugpull_dataset.csv")
-    df = df[df["Chain"].str.upper() == "BSC"]
-    return set(df["Address"].str.lower().str.strip())
+    df = pd.read_csv(RAW_DIR / "rugpull_dataset.csv", low_memory=False)
+    df.columns = [c.strip().lower() for c in df.columns]
+    df = df[df["chain"].str.upper() == "BSC"]
+    return set(df["address"].str.lower().str.strip())
 
 
 def load_tokens():
@@ -26,7 +27,13 @@ def label_tokens(tokens_df, scam_addresses):
 
 
 def attach_liquidity(tokens_df):
-    lp_df = pd.read_csv(RAW_DIR / "lp_dataset_bsc.csv")
+    lp_path = RAW_DIR / "lp_dataset_bsc.csv"
+    if not lp_path.exists():
+        print("lp_dataset_bsc.csv not found — skipping liquidity attachment for now")
+        tokens_df["has_liquidity_pool"] = None
+        return tokens_df
+
+    lp_df = pd.read_csv(lp_path)
     lp_df["token0"] = lp_df["token0"].str.lower().str.strip()
     lp_df["token1"] = lp_df["token1"].str.lower().str.strip()
 
