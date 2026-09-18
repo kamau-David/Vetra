@@ -31,8 +31,8 @@ def select_features(df):
         if col in df.columns and df[col].notna().any():
             columns.append(col)
 
-    df = df.dropna(subset=columns + ["label"])
-    X = df[columns]
+    df = df.dropna(subset=["label"])
+    X = df[columns].fillna(0)
     y = df["label"]
     return X, y, columns
 
