@@ -8,96 +8,73 @@ import os
 load_dotenv()
 
 LABELED_DIR = Path("data/labeled")
-API_KEY = os.getenv("BSCSCAN_API_KEY")
-BASE_URL = "https://api.bscscan.com/api"
+RPC_URL = os.getenv("MEGANODE_RPC_URL")
+
+OWNER_SELECTOR = "0x8da5cb5b"
+ZERO_ADDRESS = "0x" + "0" * 40
 
 
 def load_labeled_tokens():
-    return pd.read_csv(LABELED_DIR / "labeled_tokens.csv")
+    return pd.read_csv(LABELED_DIR / "labeled_tokens.csv", low_memory=False)
 
 
 def add_offline_features(df):
     df["supply_log"] = df["total_supply"].apply(lambda x: len(str(int(x))) if pd.notna(x) else 0)
-    df["gas_price_gwei"] = df["gas_price"] / 1e9
-    df["low_gas_flag"] = (df["gas_price_gwei"] < 5).astype(int)
     df["has_liquidity_pool"] = df["has_liquidity_pool"].fillna(False).astype(int)
     return df
 
 
-def get_wallet_first_tx_timestamp(address):
-    params = {
-        "module": "account",
-        "action": "txlist",
-        "address": address,
-        "startblock": 0,
-        "endblock": 99999999,
-        "page": 1,
-        "offset": 1,
-        "sort": "asc",
-        "apikey": API_KEY,
-    }
-    resp = requests.get(BASE_URL, params=params, timeout=15)
-    data = resp.json()
-    if data.get("status") == "1" and data.get("result"):
-        return int(data["result"][0]["timeStamp"])
+def rpc_call(method, params, retries=3, timeout=30, backoff=3):
+    payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
+    for attempt in range(retries):
+        try:
+            resp = requests.post(RPC_URL, json=payload, timeout=timeout)
+            return resp.json().get("result")
+        except requests.exceptions.RequestException as e:
+            wait = backoff * (attempt + 1)
+            print(f"  request failed ({e}) — retry {attempt + 1}/{retries} in {wait}s")
+            time.sleep(wait)
     return None
 
 
-def get_contract_source(address):
-    params = {
-        "module": "contract",
-        "action": "getsourcecode",
-        "address": address,
-        "apikey": API_KEY,
-    }
-    resp = requests.get(BASE_URL, params=params, timeout=15)
-    data = resp.json()
-    if data.get("status") == "1" and data.get("result"):
-        return data["result"][0].get("SourceCode", "")
-    return ""
-
-
-def flag_owner_permissions(source_code):
-    if not source_code:
+def decode_address(hex_result):
+    if not hex_result or hex_result == "0x":
         return None
-    lowered = source_code.lower()
-    has_mint = "function mint" in lowered
-    has_pause = "function pause" in lowered or "tradingenabled" in lowered
-    has_blacklist = "blacklist" in lowered
-    return int(has_mint or has_pause or has_blacklist)
+    try:
+        return "0x" + hex_result[-40:]
+    except Exception:
+        return None
 
-def enrich_with_onchain(df, limit=50, delay=0.25):
-    if not API_KEY:
-        print("BSCSCAN_API_KEY not set — skipping live enrichment")
+
+def owner_not_renounced(address, delay):
+    result = rpc_call("eth_call", [{"to": address, "data": OWNER_SELECTOR}, "latest"])
+    time.sleep(delay)
+    owner = decode_address(result)
+    if owner is None:
+        return None
+    return int(owner.lower() != ZERO_ADDRESS)
+
+
+def enrich_with_onchain(df, limit=50, delay=0.3):
+    if not RPC_URL:
+        print("MEGANODE_RPC_URL not set — skipping live enrichment")
         return df
 
     subset = df.head(limit).copy()
-    wallet_ages = []
-    owner_flags = []
+    flags = []
 
     for i, row in subset.iterrows():
         address = row["address"]
         try:
-            first_tx = get_wallet_first_tx_timestamp(address)
-            wallet_ages.append(first_tx)
+            flags.append(owner_not_renounced(address, delay))
         except Exception as e:
-            print(f"wallet age fetch failed for {address}: {e}")
-            wallet_ages.append(None)
-        time.sleep(delay)
+            print(f"owner check failed for {address}: {e}")
+            flags.append(None)
 
-        try:
-            source = get_contract_source(address)
-            owner_flags.append(flag_owner_permissions(source))
-        except Exception as e:
-            print(f"contract source fetch failed for {address}: {e}")
-            owner_flags.append(None)
-        time.sleep(delay)
-
-    subset["creator_first_tx_ts"] = wallet_ages
-    subset["risky_owner_permissions"] = owner_flags
+    subset["owner_not_renounced"] = flags
 
     df = df.merge(
-        subset[["address", "creator_first_tx_ts", "risky_owner_permissions"]],
+        subset[["address", "owner_not_renounced"]],
         on="address",
         how="left",
     )

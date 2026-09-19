@@ -9,7 +9,8 @@ load_dotenv()
 
 RAW_DIR = Path("data/raw")
 API_KEY = os.getenv("BSCSCAN_API_KEY")
-BASE_URL = "https://api.bscscan.com/api"
+BASE_URL = "https://api.etherscan.io/v2/api"
+CHAIN_ID = 56
 OUT_PATH = RAW_DIR / "scam_tokens_live.csv"
 
 FUNC_SELECTORS = {
@@ -27,6 +28,7 @@ def get_bsc_scam_addresses():
 
 
 def safe_get(params, retries=4, timeout=30, backoff=3):
+    params = {**params, "chainid": CHAIN_ID}
     for attempt in range(retries):
         try:
             resp = requests.get(BASE_URL, params=params, timeout=timeout)
