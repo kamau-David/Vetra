@@ -25,11 +25,13 @@ def load_training_data():
 
 def select_features(df):
     columns = FEATURE_COLUMNS.copy()
-    for col in OPTIONAL_LIVE_COLUMNS:
-        if col in df.columns and df[col].notna().any():
-            columns.append(col)
+    live_cols_used = [c for c in OPTIONAL_LIVE_COLUMNS if c in df.columns and df[c].notna().any()]
+    columns += live_cols_used
 
     df = df.dropna(subset=["label"])
+    if live_cols_used:
+        df = df.dropna(subset=live_cols_used)
+
     X = df[columns].fillna(0)
     y = df["label"]
     return X, y, columns
