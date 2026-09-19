@@ -24,7 +24,7 @@ def add_offline_features(df):
     return df
 
 
-def rpc_call(method, params, retries=3, timeout=30, backoff=3):
+def rpc_call(method, params, retries=6, timeout=30, backoff=4):
     payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
     for attempt in range(retries):
         try:
