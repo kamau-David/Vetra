@@ -8,9 +8,7 @@ import os
 load_dotenv()
 
 RAW_DIR = Path("data/raw")
-API_KEY = os.getenv("BSCSCAN_API_KEY")
-BASE_URL = "https://api.etherscan.io/v2/api"
-CHAIN_ID = 56
+RPC_URL = os.getenv("MEGANODE_RPC_URL")
 OUT_PATH = RAW_DIR / "scam_tokens_live.csv"
 
 FUNC_SELECTORS = {
@@ -27,72 +25,32 @@ def get_bsc_scam_addresses():
     return df["address"].str.lower().str.strip().tolist()
 
 
-def safe_get(params, retries=4, timeout=30, backoff=3):
-    params = {**params, "chainid": CHAIN_ID}
+def rpc_call(method, params, retries=4, timeout=30, backoff=3):
+    payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
     for attempt in range(retries):
         try:
-            resp = requests.get(BASE_URL, params=params, timeout=timeout)
-            return resp.json()
+            resp = requests.post(RPC_URL, json=payload, timeout=timeout)
+            data = resp.json()
+            return data.get("result")
         except requests.exceptions.RequestException as e:
             wait = backoff * (attempt + 1)
             print(f"  request failed ({e}) — retry {attempt + 1}/{retries} in {wait}s")
             time.sleep(wait)
     print("  giving up on this request after retries")
-    return {}
+    return None
 
 
-def get_creation_info(address):
-    params = {
-        "module": "contract",
-        "action": "getcontractcreation",
-        "contractaddresses": address,
-        "apikey": API_KEY,
-    }
-    data = safe_get(params)
-    if data.get("status") == "1" and data.get("result"):
-        r = data["result"][0]
-        return r.get("contractCreator"), r.get("txHash")
-    return None, None
-
-
-def get_tx_details(tx_hash):
-    params = {
-        "module": "proxy",
-        "action": "eth_getTransactionByHash",
-        "txhash": tx_hash,
-        "apikey": API_KEY,
-    }
-    result = safe_get(params).get("result")
-    if not result:
-        return None, None
-    gas_price = int(result.get("gasPrice", "0x0"), 16)
-    block_number = int(result.get("blockNumber", "0x0"), 16)
-    return gas_price, block_number
-
-
-def get_tx_receipt_gas_used(tx_hash):
-    params = {
-        "module": "proxy",
-        "action": "eth_getTransactionReceipt",
-        "txhash": tx_hash,
-        "apikey": API_KEY,
-    }
-    result = safe_get(params).get("result")
-    if not result:
-        return None
-    return int(result.get("gasUsed", "0x0"), 16)
+def get_code(address):
+    return rpc_call("eth_getCode", [address, "latest"])
 
 
 def eth_call(address, selector):
-    params = {
-        "module": "proxy",
-        "action": "eth_call",
-        "to": address,
-        "data": selector,
-        "tag": "latest",
-        "apikey": API_KEY,
-    }
-    return safe_get(params).get("result")
+    return rpc_call("eth_call", [{"to": address, "data": selector}, "latest"])
+
+
+def get_transaction_count(address):
+    result = rpc_call("eth_getTransactionCount", [address, "latest"])
+    return int(result, 16) if result else None
 
 
 def decode_string(hex_result):
@@ -114,43 +72,34 @@ def decode_int(hex_result):
         return None
 
 
-def get_token_basic_info(address, delay):
-    symbol = decode_string(eth_call(address, FUNC_SELECTORS["symbol"]))
-    time.sleep(delay)
-    decimals = decode_int(eth_call(address, FUNC_SELECTORS["decimals"]))
-    time.sleep(delay)
-    total_supply = decode_int(eth_call(address, FUNC_SELECTORS["totalSupply"]))
-    time.sleep(delay)
-    return symbol, decimals, total_supply
-
-
 def fetch_one(address, delay):
-    creator, tx_hash = get_creation_info(address)
+    code = get_code(address)
+    is_contract = bool(code and code != "0x")
     time.sleep(delay)
 
-    gas_price, block_number = (None, None)
-    gas_used = None
-    if tx_hash:
-        gas_price, block_number = get_tx_details(tx_hash)
+    symbol = decimals = total_supply = None
+    if is_contract:
+        symbol = decode_string(eth_call(address, FUNC_SELECTORS["symbol"]))
         time.sleep(delay)
-        gas_used = get_tx_receipt_gas_used(tx_hash)
+        decimals = decode_int(eth_call(address, FUNC_SELECTORS["decimals"]))
         time.sleep(delay)
-
-    symbol, decimals, total_supply = get_token_basic_info(address, delay)
+        total_supply = decode_int(eth_call(address, FUNC_SELECTORS["totalSupply"]))
+        time.sleep(delay)
 
     return {
         "address": address,
+        "is_contract": is_contract,
         "symbol": symbol,
         "name": None,
         "decimals": decimals,
         "total_supply": total_supply,
-        "tx_hash": tx_hash,
-        "block_number": block_number,
-        "from_tx": creator,
-        "gas_price": gas_price,
-        "gas_used": gas_used,
+        "tx_hash": None,
+        "block_number": None,
+        "from_tx": None,
+        "gas_price": None,
+        "gas_used": None,
         "value": None,
-        "creator": creator,
+        "creator": None,
     }
 
 
@@ -183,8 +132,8 @@ def fetch_scam_token_data(addresses, delay=0.3):
 
 
 def main():
-    if not API_KEY:
-        print("BSCSCAN_API_KEY not set — aborting")
+    if not RPC_URL:
+        print("MEGANODE_RPC_URL not set — aborting")
         return
 
     addresses = get_bsc_scam_addresses()
