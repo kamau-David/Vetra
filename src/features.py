@@ -55,14 +55,18 @@ def owner_not_renounced(address, delay):
     return int(owner.lower() != ZERO_ADDRESS)
 
 
-def enrich_with_onchain(df, limit=50, delay=0.3):
+def enrich_with_onchain(df, legit_sample_size=500, delay=0.3):
     if not RPC_URL:
         print("MEGANODE_RPC_URL not set — skipping live enrichment")
         return df
 
-    subset = df.head(limit).copy()
-    flags = []
+    scam_rows = df[df["label"] == 1]
+    legit_rows = df[df["label"] == 0].sample(n=legit_sample_size, random_state=42)
+    subset = pd.concat([scam_rows, legit_rows]).copy()
 
+    print(f"Enriching {len(scam_rows)} scam rows and {len(legit_rows)} legit rows")
+
+    flags = []
     for i, row in subset.iterrows():
         address = row["address"]
         try:
@@ -81,12 +85,12 @@ def enrich_with_onchain(df, limit=50, delay=0.3):
     return df
 
 
-def main(live=False, limit=50):
+def main(live=False, legit_sample_size=500):
     df = load_labeled_tokens()
     df = add_offline_features(df)
 
     if live:
-        df = enrich_with_onchain(df, limit=limit)
+        df = enrich_with_onchain(df, legit_sample_size=legit_sample_size)
 
     out_path = LABELED_DIR / "training_data.csv"
     df.to_csv(out_path, index=False)
@@ -94,4 +98,4 @@ def main(live=False, limit=50):
 
 
 if __name__ == "__main__":
-    main(live=False)
+    main(live=True)
