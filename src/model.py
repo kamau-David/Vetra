@@ -11,13 +11,11 @@ MODEL_DIR.mkdir(exist_ok=True)
 
 FEATURE_COLUMNS = [
     "supply_log",
-    "gas_price_gwei",
-    "low_gas_flag",
     "has_liquidity_pool",
 ]
 
 OPTIONAL_LIVE_COLUMNS = [
-    "risky_owner_permissions",
+    "owner_not_renounced",
 ]
 
 
