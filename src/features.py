@@ -11,6 +11,9 @@ LABELED_DIR = Path("data/labeled")
 RPC_URL = os.getenv("MEGANODE_RPC_URL")
 
 OWNER_SELECTOR = "0x8da5cb5b"
+GET_PAIR_SELECTOR = "0xe6a43905"
+PANCAKE_FACTORY = "0xca143ce32fe78f1f7019d7d551a6402fc5350c73"
+WBNB = "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c"
 ZERO_ADDRESS = "0x" + "0" * 40
 
 
@@ -20,7 +23,6 @@ def load_labeled_tokens():
 
 def add_offline_features(df):
     df["supply_log"] = df["total_supply"].apply(lambda x: len(str(int(x))) if pd.notna(x) else 0)
-    df["has_liquidity_pool"] = df["has_liquidity_pool"].fillna(False).astype(int)
     return df
 
 
@@ -35,6 +37,10 @@ def rpc_call(method, params, retries=6, timeout=30, backoff=4):
             print(f"  request failed ({e}) — retry {attempt + 1}/{retries} in {wait}s")
             time.sleep(wait)
     return None
+
+
+def pad_address(address):
+    return address.lower().replace("0x", "").zfill(64)
 
 
 def decode_address(hex_result):
@@ -55,6 +61,16 @@ def owner_not_renounced(address, delay):
     return int(owner.lower() != ZERO_ADDRESS)
 
 
+def has_liquidity_pool_live(address, delay):
+    data = GET_PAIR_SELECTOR + pad_address(address) + pad_address(WBNB)
+    result = rpc_call("eth_call", [{"to": PANCAKE_FACTORY, "data": data}, "latest"])
+    time.sleep(delay)
+    pair = decode_address(result)
+    if pair is None:
+        return None
+    return int(pair.lower() != ZERO_ADDRESS)
+
+
 def enrich_with_onchain(df, legit_sample_size=500, delay=0.3):
     if not RPC_URL:
         print("MEGANODE_RPC_URL not set — skipping live enrichment")
@@ -66,19 +82,27 @@ def enrich_with_onchain(df, legit_sample_size=500, delay=0.3):
 
     print(f"Enriching {len(scam_rows)} scam rows and {len(legit_rows)} legit rows")
 
-    flags = []
+    owner_flags = []
+    lp_flags = []
     for i, row in subset.iterrows():
         address = row["address"]
         try:
-            flags.append(owner_not_renounced(address, delay))
+            owner_flags.append(owner_not_renounced(address, delay))
         except Exception as e:
             print(f"owner check failed for {address}: {e}")
-            flags.append(None)
+            owner_flags.append(None)
 
-    subset["owner_not_renounced"] = flags
+        try:
+            lp_flags.append(has_liquidity_pool_live(address, delay))
+        except Exception as e:
+            print(f"liquidity check failed for {address}: {e}")
+            lp_flags.append(None)
+
+    subset["owner_not_renounced"] = owner_flags
+    subset["has_liquidity_pool_live"] = lp_flags
 
     df = df.merge(
-        subset[["address", "owner_not_renounced"]],
+        subset[["address", "owner_not_renounced", "has_liquidity_pool_live"]],
         on="address",
         how="left",
     )
