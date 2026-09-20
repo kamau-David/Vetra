@@ -11,11 +11,11 @@ MODEL_DIR.mkdir(exist_ok=True)
 
 FEATURE_COLUMNS = [
     "supply_log",
-    "has_liquidity_pool",
 ]
 
 OPTIONAL_LIVE_COLUMNS = [
     "owner_not_renounced",
+    "has_liquidity_pool_live",
 ]
 
 
