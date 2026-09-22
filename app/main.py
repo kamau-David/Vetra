@@ -102,12 +102,12 @@ def get_has_liquidity_pool(address):
 def build_feature_row(address):
     total_supply = get_total_supply(address)
     supply_log = len(str(total_supply)) if total_supply else 0
-    has_liquidity_pool = get_has_liquidity_pool(address) or 0
+    has_liquidity_pool_live = get_has_liquidity_pool(address) or 0
     owner_not_renounced = get_owner_not_renounced(address)
 
     return {
         "supply_log": supply_log,
-        "has_liquidity_pool": has_liquidity_pool,
+        "has_liquidity_pool_live": has_liquidity_pool_live,
         "owner_not_renounced": owner_not_renounced if owner_not_renounced is not None else 0,
     }
 
