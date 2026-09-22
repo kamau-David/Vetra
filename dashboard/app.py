@@ -36,7 +36,7 @@ if check and address:
 
             col1, col2, col3 = st.columns(3)
             col1.metric("Supply magnitude", flags["supply_log"])
-            col2.metric("Has liquidity pool", "Yes" if flags["has_liquidity_pool"] else "No")
+            col2.metric("Has liquidity pool", "Yes" if flags["has_liquidity_pool_live"] else "No")
             col3.metric("Owner not renounced", "Yes" if flags["owner_not_renounced"] else "No")
 
             st.caption(f"Address checked: {data['address']}")
